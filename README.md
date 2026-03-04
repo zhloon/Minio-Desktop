@@ -1,6 +1,6 @@
 # minio-desktop-app
 
-An Electron application with Vue
+基于electron开发的一个Minio桌面端管理系统
 
 ## Recommended IDE Setup
 
