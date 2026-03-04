@@ -32,7 +32,7 @@
             <input
               v-model="config.endpoint"
               type="text"
-              placeholder="API Endpoint (如: https://minio.easylabel.cloud)"
+              placeholder="API Endpoint (如: http://127.0.0.1:9000)"
             />
           </div>
 
