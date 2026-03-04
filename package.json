@@ -1,9 +1,9 @@
 {
   "name": "minio-desktop-app",
   "version": "1.0.0",
-  "description": "An Electron application with Vue",
+  "description": "MINIO 桌面控制台",
   "main": "./out/main/index.js",
-  "author": "example.com",
+  "author": "EasyLabel",
   "homepage": "https://electron-vite.org",
   "scripts": {
     "format": "prettier --write .",
@@ -20,10 +20,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "aws-sdk": "^2.1693.0",
-    "electron-updater": "^6.3.9",
-    "jszip": "^3.10.1",
-    "pdfjs-dist": "^5.5.207"
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config": "^2.1.0",
@@ -38,10 +35,12 @@
     "vite": "^7.2.6",
     "vue": "^3.5.25",
     "vue-eslint-parser": "^10.2.0"
-  },"build": {
-    "appId": "com.zhlon.minio-desktop-app",
-    "productName": "Minio Desktop App",
+  },
+  "build": {
+    "appId": "com.easylabel.minio",
+    "productName": "MINIO控制台",
     "asar": true,
+    "compression": "maximum",
     "directories": {
       "output": "release"
     },
@@ -63,14 +62,14 @@
         }
       ]
     },
-    "linux": {
-      "icon": "resources/icon.png",
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": ["x64", "arm64"]
-        }
-      ]
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico",
+      "installerHeaderIcon": "resources/icon.ico"
     }
   }
 }
