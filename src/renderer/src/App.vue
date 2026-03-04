@@ -12,7 +12,7 @@
         </div>
 
         <div class="login-form">
-          <div class="input-group">
+          <div class="input-group endpoint-group">
             <span class="input-icon">
               <svg
                 viewBox="0 0 24 24"
@@ -29,10 +29,53 @@
                 ></path>
               </svg>
             </span>
+
+            <div class="custom-dropdown" @click="showProtocolDropdown = !showProtocolDropdown">
+              <div class="dropdown-display">
+                {{ config.protocol }}
+                <svg
+                  class="dropdown-arrow"
+                  :class="{ 'is-open': showProtocolDropdown }"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </div>
+
+              <transition name="dropdown-fade">
+                <ul v-if="showProtocolDropdown" class="dropdown-list">
+                  <li
+                    :class="{ active: config.protocol === 'http://' }"
+                    @click.stop="selectProtocol('http://')"
+                  >
+                    http://
+                  </li>
+                  <li
+                    :class="{ active: config.protocol === 'https://' }"
+                    @click.stop="selectProtocol('https://')"
+                  >
+                    https://
+                  </li>
+                </ul>
+              </transition>
+            </div>
+
+            <div
+              v-if="showProtocolDropdown"
+              class="dropdown-backdrop"
+              @click.stop="showProtocolDropdown = false"
+            ></div>
+
             <input
               v-model="config.endpoint"
               type="text"
-              placeholder="API Endpoint (如: http://127.0.0.1:9000)"
+              placeholder="例如: minio.easylabel.cloud"
+              class="endpoint-input"
             />
           </div>
 
@@ -99,6 +142,27 @@
     </div>
 
     <div v-else-if="currentPanel === 'bucket'" class="panel">
+      <div class="bucket-alert-bar">
+        <svg
+          viewBox="0 0 24 24"
+          width="16"
+          height="16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <span
+          >💡 <strong>温馨提示：</strong> 如果图片无法显示，请将当前 Bucket 设置为<strong
+            >「🔓 公开」</strong
+          >。</span
+        >
+      </div>
       <div class="control-panel">
         <div class="panel-group">
           <input
@@ -124,9 +188,23 @@
             新增 Bucket
           </button>
         </div>
-        <span class="text-link" @click="logout">
-          <span class="icon-wrap" v-html="SVGS.folderSmall"></span> 退出连接
-        </span>
+        <button class="btn-logout" title="安全断开当前云端连接" @click="logout">
+          <svg
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <polyline points="16 17 21 12 16 7"></polyline>
+            <line x1="21" y1="12" x2="9" y2="12"></line>
+          </svg>
+          断开连接
+        </button>
       </div>
 
       <div class="gallery">
@@ -190,7 +268,7 @@
           <button class="btn-secondary" @click="selectAllVisible">☑️ 全选</button>
           <button class="btn-batch" @click="batchDownload">📦 打包</button>
           <button class="btn-delete" @click="batchDelete">🗑️ 删除</button>
-          <button class="btn-secondary" @click="clearSearchAndRefresh">🔄 刷新</button>
+          <button class="btn-secondary" @click="loadObjects(true)">🔄 刷新</button>
         </div>
       </div>
 
@@ -452,8 +530,6 @@ const statusMessage = ref('')
 const isStatusError = ref(false)
 const isSearchMode = ref(false)
 const searchKeyword = ref('')
-
-const config = reactive({ endpoint: 'http://127.0.0.1:9000', ak: 'minioadmin', sk: 'minioadmin' })
 const buckets = ref([])
 const newBucketName = ref('')
 const currentBucket = ref('')
@@ -464,6 +540,14 @@ const fileInputRef = ref(null)
 
 const pdfCanvasRef = ref(null)
 const pdfBodyRef = ref(null)
+// 🌟 控制自定义协议下拉菜单的开关
+const showProtocolDropdown = ref(false)
+
+// 🌟 选择协议时的触发函数
+const selectProtocol = (p) => {
+  config.protocol = p
+  showProtocolDropdown.value = false // 选完自动关闭
+}
 
 const modals = reactive({
   input: {
@@ -488,13 +572,144 @@ const modals = reactive({
   }
 })
 
-onMounted(() => {
-  if (localStorage.getItem('minio_endpoint')) {
-    config.endpoint = localStorage.getItem('minio_endpoint')
-    config.ak = localStorage.getItem('minio_ak') || ''
-    config.sk = localStorage.getItem('minio_sk') || ''
-  }
+// 🌟 1. 将 protocol 从 endpoint 中独立出来
+const config = reactive({
+  protocol: 'http://',
+  endpoint: '127.0.0.1:9000',
+  ak: 'minioadmin',
+  sk: 'minioadmin'
 })
+
+// 🌟 2. 页面加载时，智能解析并填充上次登录的地址
+onMounted(() => {
+  const savedUrl = localStorage.getItem('minio_endpoint')
+  if (savedUrl) {
+    if (savedUrl.startsWith('https://')) {
+      config.protocol = 'https://'
+      config.endpoint = savedUrl.replace('https://', '')
+    } else if (savedUrl.startsWith('http://')) {
+      config.protocol = 'http://'
+      config.endpoint = savedUrl.replace('http://', '')
+    } else {
+      config.endpoint = savedUrl // 兼容旧数据
+    }
+  }
+  if (localStorage.getItem('minio_ak')) config.ak = localStorage.getItem('minio_ak')
+  if (localStorage.getItem('minio_sk')) config.sk = localStorage.getItem('minio_sk')
+})
+
+// 🌟 3. 获取直链时，拼接协议头
+const getPublicUrl = (key) => {
+  const fullEndpoint = `${config.protocol}${config.endpoint}`
+  return `${fullEndpoint}/${currentBucket.value}/${encodeURIComponent(key).replace(/%2F/g, '/')}`
+}
+
+// 🌟 4. 连接时记住完整地址
+const connectMinio = async () => {
+  isConnecting.value = true
+  loginError.value = ''
+
+  // 拼接出完整的 URL
+  let fullEndpoint = `${config.protocol}${config.endpoint.trim()}`
+  try {
+    const urlObj = new URL(fullEndpoint)
+    fullEndpoint = urlObj.origin
+  } catch (e) {
+    loginError.value = 'API Endpoint 格式错误'
+    isConnecting.value = false
+    console.log(e)
+    return
+  }
+
+  const AWS = getWindow().AWS
+  AWS.config.update({
+    accessKeyId: config.ak,
+    secretAccessKey: config.sk,
+    endpoint: fullEndpoint,
+    s3ForcePathStyle: true,
+    signatureVersion: 'v4',
+    region: 'us-east-1'
+  })
+  s3Client.value = markRaw(new AWS.S3())
+
+  try {
+    await loadBuckets()
+    // 登录成功后，将完整地址写入硬盘缓存
+    localStorage.setItem('minio_endpoint', fullEndpoint)
+    localStorage.setItem('minio_ak', config.ak)
+    localStorage.setItem('minio_sk', config.sk)
+  } catch (err) {
+    console.error(err)
+    loginError.value = '连接失败！请检查配置。'
+  } finally {
+    isConnecting.value = false
+  }
+}
+
+// 🌟 5. 给 loadObjects 增加 forceRefresh (强制刷新) 参数
+// 🌟 修复版：调整 DOM 渲染时机的加载函数
+const loadObjects = async (forceRefresh = false) => {
+  isSearchMode.value = false
+  selectedFiles.value = []
+  const cacheKey = `minio_dir_${currentBucket.value}_${currentPrefix.value}`
+
+  const cachedData = localStorage.getItem(cacheKey)
+  if (!forceRefresh && cachedData) {
+    objects.value = JSON.parse(cachedData)
+    // 【极其重要 1】：从缓存加载数据后，也必须呼叫渲染！
+    nextTick(renderPdfThumbnails)
+  }
+
+  showMsg('正在同步云端最新数据...', false)
+
+  try {
+    const data = await s3Client.value
+      .listObjectsV2({ Bucket: currentBucket.value, Prefix: currentPrefix.value, Delimiter: '/' })
+      .promise()
+    let items = []
+    if (data.CommonPrefixes)
+      data.CommonPrefixes.forEach((p) =>
+        items.push({
+          Key: p.Prefix,
+          name: p.Prefix.replace(currentPrefix.value, '').replace('/', ''),
+          isFolder: true
+        })
+      )
+    if (data.Contents) {
+      data.Contents.sort((a, b) => b.LastModified - a.LastModified).forEach((i) => {
+        if (i.Key === currentPrefix.value) return
+        const name = i.Key.replace(currentPrefix.value, '')
+        const ext = name.split('.').pop().toLowerCase()
+        const item = {
+          Key: i.Key,
+          name,
+          isFolder: false,
+          ext,
+          isImage: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext),
+          isPdf: ext === 'pdf',
+          url: ''
+        }
+
+        if (item.isImage || item.isPdf) {
+          item.url = getPublicUrl(i.Key)
+          // 【注意】：不要在这里调用 nextTick 了，删掉里面的 if(item.isPdf) nextTick...
+        }
+        items.push(item)
+      })
+    }
+
+    objects.value = items
+    localStorage.setItem(cacheKey, JSON.stringify(items))
+
+    // 【极其重要 2】：等 Vue 把最新的 objects 画到屏幕上之后，再统一执行 PDF 渲染！
+    nextTick(renderPdfThumbnails)
+
+    showMsg('刷新完成！')
+  } catch (err) {
+    console.error(err)
+    showMsg('读取失败: ' + err.message, true)
+  }
+}
 
 const showMsg = (msg, error = false) => {
   statusMessage.value = msg
@@ -510,53 +725,6 @@ const showProgress = (title) => {
 const updateProgress = (percent, text) => {
   modals.progress.percent = percent
   modals.progress.text = text
-}
-
-// 内部工具：生成无签名的安全直链
-const getPublicUrl = (key) => {
-  return `${config.endpoint}/${currentBucket.value}/${encodeURIComponent(key).replace(/%2F/g, '/')}`
-}
-
-const connectMinio = async () => {
-  isConnecting.value = true
-  loginError.value = ''
-
-  let rawEndpoint = config.endpoint.trim()
-  if (!rawEndpoint.startsWith('http://') && !rawEndpoint.startsWith('https://')) {
-    rawEndpoint = 'http://' + rawEndpoint
-  }
-  try {
-    const urlObj = new URL(rawEndpoint)
-    config.endpoint = urlObj.origin
-  } catch (e) {
-    loginError.value = 'API Endpoint 格式错误'
-    isConnecting.value = false
-    console.log(e)
-    return
-  }
-
-  const AWS = getWindow().AWS
-  AWS.config.update({
-    accessKeyId: config.ak,
-    secretAccessKey: config.sk,
-    endpoint: config.endpoint,
-    s3ForcePathStyle: true,
-    signatureVersion: 'v4',
-    region: 'us-east-1'
-  })
-  s3Client.value = markRaw(new AWS.S3())
-
-  try {
-    await loadBuckets()
-    localStorage.setItem('minio_endpoint', config.endpoint)
-    localStorage.setItem('minio_ak', config.ak)
-    localStorage.setItem('minio_sk', config.sk)
-  } catch (err) {
-    console.error(err)
-    loginError.value = '连接失败！请检查配置。'
-  } finally {
-    isConnecting.value = false
-  }
 }
 
 const logout = () => {
@@ -706,75 +874,6 @@ const goUpOneLevel = () => {
   loadObjects()
 }
 
-const loadObjects = async () => {
-  isSearchMode.value = false
-  selectedFiles.value = []
-
-  // 🌟 1. 生成当前路径的专属缓存 Key
-  const cacheKey = `minio_dir_${currentBucket.value}_${currentPrefix.value}`
-
-  // 🌟 2. 尝试读取本地缓存并瞬间渲染界面
-  const cachedData = localStorage.getItem(cacheKey)
-  if (cachedData) {
-    objects.value = JSON.parse(cachedData)
-  } else {
-    showMsg('正在拉取云端数据...', false) // 只有没缓存时才提示加载
-  }
-
-  // 🌟 3. 后台静默拉取最新数据
-  try {
-    const data = await s3Client.value
-      .listObjectsV2({ Bucket: currentBucket.value, Prefix: currentPrefix.value, Delimiter: '/' })
-      .promise()
-    let items = []
-
-    if (data.CommonPrefixes) {
-      data.CommonPrefixes.forEach((p) =>
-        items.push({
-          Key: p.Prefix,
-          name: p.Prefix.replace(currentPrefix.value, '').replace('/', ''),
-          isFolder: true
-        })
-      )
-    }
-    if (data.Contents) {
-      data.Contents.sort((a, b) => b.LastModified - a.LastModified).forEach((i) => {
-        if (i.Key === currentPrefix.value) return
-        const name = i.Key.replace(currentPrefix.value, '')
-        const ext = name.split('.').pop().toLowerCase()
-        const item = {
-          Key: i.Key,
-          name,
-          isFolder: false,
-          ext,
-          isImage: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext),
-          isPdf: ext === 'pdf',
-          url: ''
-        }
-        if (item.isImage || item.isPdf) {
-          // 先用原始直链占位
-          item.url = getPublicUrl(i.Key)
-          // 后台去硬盘里找，找到了就无缝替换为本地急速版
-          getCachedMediaUrl(item.url).then((localUrl) => {
-            item.url = localUrl
-          })
-          if (item.isPdf) nextTick(renderPdfThumbnails)
-        }
-        items.push(item)
-      })
-    }
-
-    // 🌟 4. 更新界面，并把最新数据写入本地缓存
-    objects.value = items
-    localStorage.setItem(cacheKey, JSON.stringify(items))
-
-    if (!cachedData) showMsg('加载完成')
-  } catch (err) {
-    console.error(err)
-    if (!cachedData) showMsg('读取失败: ' + err.message, true)
-  }
-}
-
 const performSearch = async () => {
   const kw = searchKeyword.value.trim().toLowerCase()
   if (!kw) return loadObjects()
@@ -831,10 +930,6 @@ const performSearch = async () => {
   }
 }
 
-const clearSearchAndRefresh = () => {
-  searchKeyword.value = ''
-  loadObjects()
-}
 const selectAllVisible = () => {
   if (selectedFiles.value.length === objects.value.length) selectedFiles.value = []
   else selectedFiles.value = objects.value.map((o) => o.Key)
@@ -859,22 +954,34 @@ const getFileIcon = (name) => {
   return SVGS.file.replace('COLOR', '#9aa0a6')
 }
 
+// 🌟 修复版：智能等待 CDN 引擎加载的 PDF 渲染器
 const renderPdfThumbnails = async () => {
+  // 尝试获取 PDF 引擎
   const pdfjsLib = getWindow()['pdfjs-dist/build/pdf'] || getWindow().pdfjsLib
-  if (!pdfjsLib) return
+
+  // 如果 CDN 还没拉取完毕，等 500 毫秒后再试一次，而不是直接放弃！
+  if (!pdfjsLib) {
+    setTimeout(renderPdfThumbnails, 500)
+    return
+  }
+
   const canvases = document.querySelectorAll('.pdf-thumb-canvas:not([data-rendered="true"])')
   for (let canvas of canvases) {
     canvas.setAttribute('data-rendered', 'true')
     try {
       const pdf = await pdfjsLib.getDocument(canvas.dataset.url).promise
       const page = await pdf.getPage(1)
-      const viewport = page.getViewport({ scale: 2.0 })
+      const viewport = page.getViewport({ scale: 1.5 }) // 缩放稍微调小一点，加快渲染速度
       canvas.width = viewport.width
       canvas.height = viewport.height
       await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise
+
+      // 渲染成功后，隐藏掉“渲染中...”的提示
       if (canvas.previousElementSibling) canvas.previousElementSibling.style.display = 'none'
     } catch (err) {
       console.warn('PDF缩略图渲染失败', err)
+      // 如果渲染失败，允许下次重试
+      canvas.removeAttribute('data-rendered')
     }
   }
 }
@@ -930,40 +1037,21 @@ const closePdfViewer = () => {
   currentPdfDoc = null
 }
 
+// 纯 JS 写法：用 JSDoc 注释告诉编辑器它是个布尔值，代码里不要写类型
+/**
+ * @param {boolean} isPdf
+ */
+// eslint-disable-next-line no-unused-vars
 const printPreview = async (isPdf) => {
   if (!currentPreviewUrl) return
-  showMsg('准备系统打印引擎...', false)
+
+  showMsg('正在唤起系统默认浏览器...', false)
   try {
-    if (isPdf) {
-      const ifr = document.createElement('iframe')
-      ifr.style.cssText =
-        'visibility:hidden;position:fixed;right:0;bottom:0;width:0;height:0;border:none;'
-      ifr.src = currentPreviewUrl
-      document.body.appendChild(ifr)
-      ifr.onload = () =>
-        setTimeout(() => {
-          ifr.contentWindow.print()
-          setTimeout(() => document.body.removeChild(ifr), 60000)
-          showMsg('打印调起成功！')
-        }, 500)
-    } else {
-      const ifr = document.createElement('iframe')
-      ifr.style.cssText =
-        'visibility:hidden;position:fixed;right:0;bottom:0;width:0;height:0;border:none;'
-      document.body.appendChild(ifr)
-      const doc = ifr.contentWindow.document
-      doc.write(
-        `<html><head><style>@media print { @page { margin: 0; } body { margin: 0; display: flex; justify-content: center; align-items: center; } img { max-width: 100%; max-height: 100vh; object-fit: contain; } }</style></head><body><img src="${currentPreviewUrl}" onload="setTimeout(()=>window.print(), 300)"/></body></html>`
-      )
-      doc.close()
-      setTimeout(() => {
-        document.body.removeChild(ifr)
-        showMsg('打印调起成功！')
-      }, 5000)
-    }
+    window.open(currentPreviewUrl, '_blank')
+    showMsg('✅ 已在外部浏览器中打开，请使用插件进行打印！')
   } catch (err) {
     console.error(err)
-    showMsg('打印失败: ' + err.message, true)
+    showMsg('唤起浏览器失败: ' + err.message, true)
   }
 }
 
@@ -1482,30 +1570,6 @@ const confirmMove = async () => {
   } catch (err) {
     console.error(err)
     showMsg('移动失败', true)
-  }
-}
-// 🌟【新增】：智能硬盘缓存引擎
-const getCachedMediaUrl = async (publicUrl) => {
-  try {
-    // 打开名为 minio-media-cache 的本地数据库
-    const cache = await caches.open('minio-media-cache')
-    // 找找看硬盘里有没有存过这张图
-    const cachedResponse = await cache.match(publicUrl)
-
-    if (cachedResponse) {
-      // 如果硬盘里有，直接转成内存地址秒开！不耗费1KB流量
-      const blob = await cachedResponse.blob()
-      return URL.createObjectURL(blob)
-    } else {
-      // 如果硬盘里没有，就去请求网络，顺便存一份到硬盘里
-      fetch(publicUrl).then((response) => {
-        if (response.ok) cache.put(publicUrl, response.clone())
-      })
-      return publicUrl
-    }
-  } catch (e) {
-    console.log(e)
-    return publicUrl
   }
 }
 </script>
@@ -2206,17 +2270,15 @@ input[type='text'] {
   transition: all 0.3s ease;
 }
 
-/* 输入框焦点动效 */
-.input-group input:focus {
-  background: #ffffff;
-  border-color: #007bff;
-  box-shadow: 0 0 0 4px rgba(0, 123, 255, 0.15);
-  outline: none;
+/* 🌟 修复：强行把地球图标提到最顶层，防止被下拉框的背景盖住 */
+.endpoint-group .input-icon {
+  z-index: 10;
+  pointer-events: none; /* 极其重要：让鼠标点击能直接穿透图标，点到后面的下拉菜单 */
 }
 
-/* 当输入框聚焦时，图标也跟着变蓝 */
-.input-group input:focus + .input-icon,
-.input-group input:focus ~ .input-icon {
+/* 🌟 修复图标变蓝逻辑：只要鼠标悬浮在整个组合框上，或正在输入时，图标就变蓝 */
+.endpoint-group:hover .input-icon,
+.endpoint-group:focus-within .input-icon {
   color: #007bff;
 }
 
@@ -2291,5 +2353,240 @@ input[type='text'] {
   75% {
     transform: translateX(5px);
   }
+}
+/* ==================== 权限提示条样式 ==================== */
+.bucket-alert-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 20px 15px 20px; /* 左右和内容对齐，下方留白 */
+  padding: 10px 16px;
+  background-color: #fff8e6; /* 柔和的警告黄底色 */
+  color: #8a6d3b; /* 舒适的深黄色文字 */
+  border: 1px solid #faebcc; /* 淡淡的边框 */
+  border-radius: 8px;
+  font-size: 13px;
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+.bucket-alert-bar svg {
+  color: #f0ad4e; /* 图标稍微亮一点 */
+  flex-shrink: 0;
+}
+
+.bucket-alert-bar strong {
+  color: #d58512; /* 强调字体的颜色 */
+  font-weight: 600;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* ==================== 组合输入框样式 ==================== */
+.endpoint-group {
+  display: flex;
+  align-items: stretch; /* 让下拉框和输入框等高 */
+}
+
+.protocol-select {
+  appearance: none;
+  background-color: #f8fafc;
+
+  /* 下拉箭头稍微向左挪一点，增加右侧呼吸感 */
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="%238898aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>');
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+
+  /* 🌟 核心修复：增加宽度，并强制内边距向内挤压，绝不吃掉文字 */
+  width: 125px;
+  flex-shrink: 0;
+  box-sizing: border-box; /* 极其重要：把 padding 算在 125px 宽度内 */
+
+  border: 1px solid #e2e8f0;
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+
+  /* 精确分配：左侧留给地球图标(42px)，右侧留给下拉箭头(28px) */
+  padding: 14px 28px 14px 42px;
+
+  font-size: 14px;
+  font-weight: 500;
+  color: #495057;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+/* ==================== 组合输入框样式 ==================== */
+.endpoint-group {
+  display: flex;
+  align-items: stretch;
+  position: relative; /* 极其重要，用于定位下拉菜单 */
+}
+
+/* 🌟 高定版下拉容器 */
+.custom-dropdown {
+  position: relative;
+  width: 125px;
+  flex-shrink: 0;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.3s ease;
+}
+
+.custom-dropdown:hover {
+  background-color: #f1f5f9;
+}
+
+/* 当前选中的文字展示区 */
+.dropdown-display {
+  height: 100%;
+  padding: 0 14px 0 42px; /* 左侧留给地球图标 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 500;
+  color: #495057;
+}
+
+/* 动态箭头 */
+.dropdown-arrow {
+  width: 14px;
+  height: 14px;
+  color: #8898aa;
+  transition: transform 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.dropdown-arrow.is-open {
+  transform: rotate(180deg); /* 展开时箭头向上翻转 */
+  color: #007bff;
+}
+
+/* 悬浮的菜单列表 */
+.dropdown-list {
+  position: absolute;
+  top: calc(100% + 6px); /* 距离输入框下方 6px */
+  left: 0;
+  width: 120%; /* 稍微比输入框宽一点点，更美观 */
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow:
+    0 8px 25px rgba(0, 0, 0, 0.12),
+    0 2px 5px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f1f5f9;
+  z-index: 100;
+}
+
+/* 菜单选项 */
+.dropdown-list li {
+  padding: 10px 20px;
+  font-size: 14px;
+  color: #495057;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dropdown-list li:hover {
+  background-color: #f8fafc;
+  color: #007bff;
+}
+
+/* 被选中的选项呈现浅蓝色高亮 */
+.dropdown-list li.active {
+  background-color: #eff6ff;
+  color: #007bff;
+  font-weight: 600;
+}
+
+/* 透明遮罩层（用于点旁边关闭菜单） */
+.dropdown-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 99;
+}
+
+/* Vue 的丝滑过渡动画 */
+.dropdown-fade-enter-active,
+.dropdown-fade-leave-active {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.dropdown-fade-enter-from,
+.dropdown-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.endpoint-input {
+  flex: 1;
+  border-radius: 0 10px 10px 0 !important;
+  padding-left: 12px !important;
+}
+
+.endpoint-group:focus-within .input-icon,
+.custom-dropdown:hover ~ .input-icon {
+  color: #007bff;
+  z-index: 2;
+}
+
+/* 整个组获得焦点时，图标变蓝 */
+.endpoint-group:focus-within .input-icon {
+  color: #007bff;
+  z-index: 2; /* 确保蓝色图标层级最高 */
+}
+/* ==================== 退出连接按钮专属样式 ==================== */
+.btn-logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  /* 平时呈现低调的灰色，融入背景 */
+  background-color: #f8f9fa;
+  color: #6c757d;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+/* 🌟 悬浮时的警告反馈：背景变浅红，边框和文字变深红，并伴随微浮动 */
+.btn-logout:hover {
+  background-color: #fff5f5;
+  color: #dc3545;
+  border-color: #ffc9c9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(220, 53, 69, 0.12);
+}
+
+/* 点击时的真实物理按压感 */
+.btn-logout:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 3px rgba(220, 53, 69, 0.1);
+}
+
+/* 让 SVG 图标在悬浮时稍微向右移动一点，暗示“退出”的方向感 */
+.btn-logout:hover svg {
+  transform: translateX(2px);
+  transition: transform 0.2s ease;
 }
 </style>
